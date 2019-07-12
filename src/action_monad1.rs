@@ -1,10 +1,13 @@
 
-
 mod error;
 mod identity;
 mod writer;
 
 use std::marker::PhantomData;
+
+fn id<T>(arg: T) -> T {
+    arg
+}
 
 struct Map<'a, A, ActA, F> {
     act_a: ActA,
@@ -38,58 +41,6 @@ struct AndThen<'a, 'ab, A, ActA, ActB, F> {
     _act_b: PhantomData<&'ab ActB>,
 }
 
-struct AndThenCtx<'ab, A, ActA, ActB, Ctx> {
-    act_a: ActA,
-    func: fn(&Ctx, &A) -> ActB,
-    context: Ctx,
-    _act_b: PhantomData<&'ab ActB>,
-}
-
-
-/// BuildWriter, add this to the Writer file when appropriate.
-pub struct BuildWriter<'w, S, W>(pub PhantomData<&'w W>, pub S);
-
-impl<'w, A, S, W> TypeBuilder<A> for BuildWriter<'w, S, W>
-where
-    S: TypeBuilder<A>,
-    (S::Output, W): BaseAction<A>,
-    W: Default,
-{
-    type Output = (S::Output, W);
-    fn build(value: A) -> Self::Output {
-        (S::build(value), W::default())
-    }
-}
-
-
-
-/// The typebuilder trait is implemented for type "scaffolds". Type scaffolds
-/// are zero size markers which represent an incomplete type. When we run the
-/// build function, we complete the type and produce a basic version of it. For
-/// example, A single typeBuilder could create values of type `Result<A, E>` and
-/// `Result<B, E>`
-///
-/// The build function is essentially the same as `pure` from `BaseAction`. The
-/// difference is that 
-pub trait TypeBuilder<A> {
-    type Output: BaseAction<A>;
-    fn build(value: A) -> Self::Output;
-}
-
-impl<A> TypeBuilder<A> for () {
-    type Output = identity::Id<A>;
-    fn build(value: A) -> Self::Output {
-        identity::Id(value)
-    }
-}
-
-trait Run<S, A>: Action<A>
-where
-    S: TypeBuilder<A>,
-{
-    fn run(&self) -> S::Output;
-}
-
 trait Mappable<A>
 where
     Self: Sized,
@@ -112,10 +63,6 @@ where
     }
 }
 
-/// The trait for concrete `Action` types. A base action is one that we can
-/// create directly. using any kind of value. Other actions of the same return
-/// type can be created by applying functions such as `map`, `sequence` and
-/// `and_then`.
 trait BaseAction<A>: Action<A> {
     fn pure(value: A) -> Self;
 }
@@ -174,7 +121,6 @@ trait Sequential<A>: Mappable<A> {
 }
 
 trait Action<A>: Sequential<A> {
-    /// Execute an action, and use it's result to 
     fn and_then<'a, 'ab, B, ActB, F>(self, func: F) -> AndThen<'a, 'ab, A, Self, ActB, F>
     where
         F: Fn(&A) -> ActB,
@@ -185,26 +131,6 @@ trait Action<A>: Sequential<A> {
             act_a: self,
             func: func,
             _act_a_type: PhantomData,
-            _act_b: PhantomData,
-        }
-    }
-
-    /// `and_then_ctx` has the same functionality to `and_then`, however instead
-    /// of using the `Fn` trait for the closuer, we use a function pointer and a
-    /// context object. This allows for ot's use where we wouldn't be able to
-    /// know the type of a closure ahead of time.
-    ///
-    /// With the addition of `fn_traits` we may see this function dropped, as we
-    /// will be able to refer to closures by type.
-    fn and_then_ctx<'ab, B, ActB, Ctx>(self, context: Ctx, func: fn(&Ctx, &A) -> ActB) -> AndThenCtx<'ab, A, Self, ActB, Ctx>
-    where
-        ActB: Action<B>,
-        AndThenCtx<'ab, A, Self, ActB, Ctx>: Action<B> 
-    {
-        AndThenCtx {
-            act_a: self,
-            func: func,
-            context: context,
             _act_b: PhantomData,
         }
     }
@@ -332,64 +258,4 @@ where
     ActB: Action<B>,
     F: Fn(&A) -> ActB,
 {
-}
-
-impl<'ab, A, B, ActA, ActB, Ctx> Mappable<B> for AndThenCtx<'ab, A, ActA, ActB, Ctx>
-where
-    ActA: Mappable<A>,
-    ActB: Mappable<B>,
-{}
-impl<'ab, A, B, ActA, ActB, Ctx> Sequential<B> for AndThenCtx<'ab, A, ActA, ActB, Ctx>
-where
-    ActA: Sequential<A>,
-    ActB: Sequential<B>,
-{}
-impl<'ab, A, B, ActA, ActB, Ctx> Action<B> for AndThenCtx<'ab, A, ActA, ActB, Ctx>
-where
-    ActA: Action<A>,
-    ActB: Action<B>,
-{}
-
-
-#[cfg(test)]
-mod test {
-    use super::{BuildWriter, TypeBuilder};
-    use super::error::BuildError;
-    use super::identity::{BuildId, Id};
-    use std::marker::PhantomData;
-
-    fn build_two<A, B, S>(
-        scaffold: S,
-        value_a: A,
-        value_b: B,
-    ) -> (<S as TypeBuilder<A>>::Output, <S as TypeBuilder<B>>::Output)
-    where
-        S: TypeBuilder<A> + TypeBuilder<B>,
-    {
-        (S::build(value_a), S::build(value_b))
-    }
-
-    #[test]
-    fn same_struct_different_value() {
-        let err_type: PhantomData<&()> = PhantomData;
-        let writer_type: PhantomData<&()> = PhantomData;
-        let scaffold = BuildWriter(writer_type, BuildError(err_type, BuildId(())));
-
-        let (result_a, result_b) = build_two(scaffold, 32, "Hello");
-
-        assert_eq!(result_a, (Ok(Id(32)), ()));
-        assert_eq!(result_b, (Ok(Id("Hello")), ()));
-    }
-
-    #[test]
-    fn same_struct_different_value_2() {
-        let err_type: PhantomData<&()> = PhantomData;
-        let writer_type: PhantomData<&()> = PhantomData;
-        let scaffold = BuildError(err_type, BuildWriter(writer_type, BuildId(())));
-
-        let (result_a, result_b) = build_two(scaffold, 32, "Hello");
-
-        assert_eq!(result_a, Ok((Id(32), ())));
-        assert_eq!(result_b, Ok((Id("Hello"), ())));
-    }
 }

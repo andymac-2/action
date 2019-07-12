@@ -9,7 +9,7 @@ struct WriterTrans<'r, A, Act, W> {
     _result_type: PhantomData<&'r (A, W)>,
 }
 
-pub trait Monoid: Default {
+trait Monoid: Default {
     fn op(&self, other: &Self) -> Self;
 }
 
@@ -66,12 +66,6 @@ where
 {
     fn tell(log: W) -> Self {
         Self::writer_t(Act::pure(((), log)))
-    }
-}
-
-impl Monoid for () {
-    fn op (&self, other: &Self) -> () {
-        ()
     }
 }
 
@@ -306,3 +300,29 @@ where
 // }
 
 
+// I have no idea on how to even format this type.
+fn do_something<A: Functor<u32, u32>>(input: A) ->
+    <<<<A as Functor<u32, u32>>::Output as Functor<u32, u32>>::Output as Functor<u32, u32>>::Output as Functor<u32, u32>>::Output
+where
+    A::Output : Functor<u32, u32>,
+    <<A as Functor<u32, u32>>::Output as Functor<u32, u32>>::Output: Functor<u32, u32>,
+    <<<A as Functor<u32, u32>>::Output as Functor<u32, u32>>::Output as Functor<u32, u32>>::Output: Functor<u32, u32>,
+{
+    input
+        .fmap(|y| y + 3)
+        .fmap(|y| y * 2)
+        .fmap(|y| y - 10)
+        .fmap(|y| y + 5)
+}
+
+fn cnst<A, B>(a: A) -> impl FnOnce(B) -> A {
+    |_| a
+}
+
+trait Functor<A, B> {
+    type Output;
+
+    fn fmap<F>(self, f: F) -> Self::Output
+    where
+        F: FnOnce(A) -> B;
+}

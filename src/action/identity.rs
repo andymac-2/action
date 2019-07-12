@@ -1,101 +1,113 @@
-use super::{Action, AndThen, Combine, First, Map, Mappable, BaseAction, Second, Sequence, Sequential};
+use std::marker::PhantomData;
+
+use super::{
+    Action, AndThen, BaseAction, Combine, First, Map, Mappable, Run, Second, Sequence, Sequential, TypeBuilder,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Id<A>(A);
+pub struct BuildId<S>(pub S);
 
-trait Identity<A>: Action<A> {
-    fn unwrap_identity(&self) -> Id<A>;
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Id<A>(pub A);
+
+impl<A, S> TypeBuilder<A> for BuildId<S> where
+    S: TypeBuilder<Id<A>>,
+    S::Output: BaseAction<A>,
+{
+    type Output = S::Output;
+    fn build(value: A) -> Self::Output {
+        S::build(Id(value))
+    }
 }
 
 impl<A> Id<A> {
-    fn run(self) -> A {
+    fn unwrap(self) -> A {
         self.0
     }
 }
 
-impl<A> Mappable<A> for Id<A> {}
-impl<A> Sequential<A> for Id<A> {}
-impl<A> Action<A> for Id<A> {}
+impl<A, Base> Mappable<A> for Id<Base> {}
+impl<A, Base> Sequential<A> for Id<Base> where Base: BaseAction<A> {}
+impl<A, Base> Action<A> for Id<Base> where Base: BaseAction<A> {}
 
-impl<A> BaseAction<A> for Id<A> {
+impl<A, Base> BaseAction<A> for Id<Base>
+where
+    Base: BaseAction<A>
+{
     fn pure(value: A) -> Self {
-        Id(value)
+        Id(Base::pure(value))
     }
 }
 
-impl<A> Identity<A> for Id<A>
+impl<A> Run<BuildId, A> for Id<A>
 where
     A: Clone,
 {
-    fn unwrap_identity(&self) -> Id<A> {
+    fn run(&self) -> Id<A> {
         self.clone()
     }
 }
 
-
-impl<'a, A, B, ActA, F> Identity<B> for Map<'a, A, ActA, F>
+impl<'a, A, B, ActA, F> Run<BuildId, B> for Map<'a, A, ActA, F>
 where
-    ActA: Identity<A>,
+    ActA: Run<BuildId, A>,
     F: Fn(&A) -> B,
 {
-    fn unwrap_identity(&self) -> Id<B> {
-        Id((self.func)(&self.act_a.unwrap_identity().0))
+    fn run(&self) -> Id<B> {
+        Id((self.func)(&self.act_a.run().0))
     }
 }
-impl<'b, A, B, ActA, ActB> Identity<A> for First<'b, B, ActA, ActB>
+impl<'b, A, B, ActA, ActB> Run<BuildId, A> for First<'b, B, ActA, ActB>
 where
-    ActA: Identity<A>,
-    ActB: Identity<B>,
+    ActA: Run<BuildId, A>,
+    ActB: Run<BuildId, B>,
 {
-    fn unwrap_identity(&self) -> Id<A> {
-        let result = self.act_a.unwrap_identity();
-        self.act_b.unwrap_identity();
+    fn run(&self) -> Id<A> {
+        let result = self.act_a.run();
+        self.act_b.run();
         result
     }
 }
-impl<'a, A, B, ActA, ActB> Identity<B> for Second<'a, A, ActA, ActB>
+impl<'a, A, B, ActA, ActB> Run<BuildId, B> for Second<'a, A, ActA, ActB>
 where
-    ActA: Identity<A>,
-    ActB: Identity<B>,
+    ActA: Run<BuildId, A>,
+    ActB: Run<BuildId, B>,
 {
-    fn unwrap_identity(&self) -> Id<B> {
-        self.act_a.unwrap_identity();
-        self.act_b.unwrap_identity()
+    fn run(&self) -> Id<B> {
+        self.act_a.run();
+        self.act_b.run()
     }
 }
-impl<A, B, ActA, ActB> Identity<(A, B)> for Sequence<ActA, ActB>
+impl<A, B, ActA, ActB> Run<BuildId, (A, B)> for Sequence<ActA, ActB>
 where
-    ActA: Identity<A>,
-    ActB: Identity<B>,
+    ActA: Run<BuildId, A>,
+    ActB: Run<BuildId, B>,
 {
-    fn unwrap_identity(&self) -> Id<(A, B)> {
-        Id((
-            self.0.unwrap_identity().run(),
-            self.1.unwrap_identity().run(),
-        ))
+    fn run(&self) -> Id<(A, B)> {
+        Id((self.0.run().0, self.1.run().0))
     }
 }
-impl<'a, 'b, A, B, C, ActA, ActB, F> Identity<C> for Combine<'a, 'b, A, B, ActA, ActB, F>
+impl<'a, 'b, A, B, C, ActA, ActB, F> Run<BuildId, C> for Combine<'a, 'b, A, B, ActA, ActB, F>
 where
-    ActA: Identity<A>,
-    ActB: Identity<B>,
+    ActA: Run<BuildId, A>,
+    ActB: Run<BuildId, B>,
     F: Fn(&A, &B) -> C,
 {
-    fn unwrap_identity(&self) -> Id<C> {
-        let a = self.act_a.unwrap_identity().run();
-        let b = self.act_b.unwrap_identity().run();
+    fn run(&self) -> Id<C> {
+        let a = self.act_a.run().0;
+        let b = self.act_b.run().0;
         Id((self.func)(&a, &b))
     }
 }
 
-impl<'a, 'ab, A, B, ActA, ActB, F> Identity<B> for AndThen<'a, 'ab, A, ActA, ActB, F>
+impl<'a, 'ab, A, B, ActA, ActB, F> Run<BuildId, B> for AndThen<'a, 'ab, A, ActA, ActB, F>
 where
-    ActA: Identity<A>,
-    ActB: Identity<B>,
+    ActA: Run<BuildId, A>,
+    ActB: Run<BuildId, B>,
     F: Fn(&A) -> ActB,
 {
-    fn unwrap_identity(&self) -> Id<B> {
-        let a = self.act_a.unwrap_identity().run();
-        (self.func)(&a).unwrap_identity()
+    fn run(&self) -> Id<B> {
+        let a = self.act_a.run().0;
+        (self.func)(&a).run()
     }
 }
