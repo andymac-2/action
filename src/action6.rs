@@ -264,7 +264,7 @@ where
     F: Fn(&A) -> B,
 {
 }
-impl<A, B, ActA, F> Run<(), B> for Map<A, ActA, F> 
+impl<A, B, ActA, F> Run<(), B> for Map<A, ActA, F>
 where
     ActA: Run<(), A>,
     F: Fn(&A) -> B,
@@ -273,7 +273,7 @@ where
         (self.func)(&self.act_a.run())
     }
 }
-impl<A, B, ActA, F, W> Run<BuildWriter<W>, B> for Map<A, ActA, F> 
+impl<A, B, ActA, F, W> Run<BuildWriter<W>, B> for Map<A, ActA, F>
 where
     W: Default,
     ActA: Run<BuildWriter<W>, A>,
