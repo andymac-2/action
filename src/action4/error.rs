@@ -221,16 +221,9 @@ where
             }
         })
         .run()
-
-        // self.act_a
-        //     .run()
-        //     .and_then(
-        //         |result: <S as TypeBuilder<Result<B, E>>>::Output| match result {
-        //             Err(err_a) => <S as TypeBuilder<Result<B, E>>>::build(Err(err_a.clone())),
-        //             Ok(ok_a) => (self.func)(ok_a),
-        //         },
-        //     )
-        //     .run()
     }
 }
+
+
+
 
